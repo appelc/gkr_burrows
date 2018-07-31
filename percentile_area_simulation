@@ -1,0 +1,41 @@
+## simulate area occupied (km2) based on a range of habitat suitability percentiles from gkr species disribution model
+
+## run on vlab computer (this will take a while b/c of rasterToPolygons function)
+
+install.packages('rgeos')
+library(raster)
+library(rgeos)
+
+## load SDM raster:
+
+  sdm <- raster('C:/Users/cla236/Documents/sdm') ## download from email; create folder 'sdm'
+  plot(sdm)
+
+## calculate raster values (suitability) at each percentile from 1% to 100%:
+
+  percentiles <- quantile(sdm, probs = seq(0.01, 1, 0.01))
+  percentiles[37] # indexing e.g.
+
+## set up dataframe and plot area
+    area.pct <- NULL
+    par(mfrow = c(3,2))
+    
+  for (i in 1:99){
+    threshold <- percentiles[i] # hab suit value at the ith percentile
+    raster.i <- sdm > threshold
+    area.i <- gArea(rasterToPolygons(raster.i, fun = function(x){x == 1})) / 1e06
+    df <- data.frame('percentile' = names(threshold), 'suitability' = threshold[[1]], 
+                     'km2' = area.i)
+    area.pct <- rbind(area.pct, df)
+
+   ## visualize some of the range contractions/expansions:
+
+    if(i %in% c(10, 25, 50, 75, 90, 99)){
+      plot(raster.i, main = paste('> ', i, '%', ' (area = ', round(area.i, 0), ' km2)', 
+                                  sep = ''))
+    }
+  }
+    
+area.pct
+
+write.csv(area.pct, 'gkr_percentile_areas.csv')
