@@ -1,23 +1,113 @@
 
 library(raster)
+library(rgeos)
 
 ## load SDM raster
 
-  sdm <- raster('C:/Users/Cara/Documents/__GKR/shapefiles/sdm')
+  sdm_original <- raster('C:/Users/Cara/Documents/__GKR/shapefiles/sdm')
+  sdm <- projectRaster()
   plot(sdm)
 
+## define variables
   
-## calculate area occupied in yr 1
+  thresh.y1 <- 0.1  #threshold for a "good year"
+  change <- 0.1     #eventually generate a bunch of these
+  nlocs = 100       #eventually generate a bunch of these
 
-  thresh.y1 <- 0.1 #threshold for a "good year" (OR SHOULD THIS BE PERCENTILE INSTEAD OF HAB SUIT VALUE?)
+
+## calculate area occupied in yr 1
   
   y1 <- sdm > thresh.y1
   area.y1 <- tapply(area(y1), y1[], sum) ## doesn't work for UTM; fix this
-    
+  
+  sdm.ply <- rasterToPolygons(sdm)
+  gArea(sdm.ply[1,])
+
+
+## QUANTILE PRACTICE
+  
+t <- gArea(rasterToPolygons(sdm, fun = function(x){x > 0})) / 1000000 
+#total area of range (70,835.7 km2) (slightly different from ArcMap, 70,828.5 km2)
+  
+q <- quantile(sdm, probs = seq(0.1, 1, 0.1))
+
+suitable <- 0.1 #percentile occupied in a "good" year, yr1 (e.g., everything > 10%)
+
+q.i <- q[suitable*10] #habitat suitability threshold corresponding with the desired percentile
+
+#yr1 raster
+yr1 <- sdm > q.i
+plot(yr1, main = 'yr1 occupied')
+
+yr1.area <- gArea(rasterToPolygons(yr1, fun = function(x){x == 1})) / 1e06
+#area occupied in year 1 = 63,751.83 km2 (slightly diff from ArcMap, 63,870.5 km2)
+#divide by 1e06 to convert m2 to km2
+#rasterToPolygons is slow. alternatives? (can project to lat/lon and use raster::area?)
+
+change #percent decrease between yr1 and yr2
+
+yr2.area <- yr1.area * (1 - change)
+#area occupied in yr2 after expansion/contraction (57,376.65 km2)
+
+#what percentile of raster values (hab. suitability) corresponds w this new area?
+
+########################################
+
+## simulate a bunch of percentiles and corresponding areas (this will take a while...)
+
+  # calculate raster values (hab suit) at each percentile from 1% to 100%
+      percentiles <- quantile(sdm, probs = seq(0.01, 1, 0.01))
+      percentiles[37] # indexing e.g.
+      
+      area.pct <- NULL
+      par(mfrow = c(3,2))
+      
+      for (i in 1:99){
+        threshold <- qs[i] # hab suit value at the ith percentile
+        raster.i <- sdm > threshold
+        area.i <- gArea(rasterToPolygons(raster.i, fun = function(x){x == 1})) / 1e06
+        df <- data.frame('percentile' = names(threshold), 'suitability' = threshold[[1]], 
+                         'km2' = area.i)
+        area.pct <- rbind(area.pct, df)
+        
+         ## visualize some of the range contractions/expansions
+          for(i in c(10, 25, 50, 75, 90, 99)){
+            plot(raster.i, main = paste('> ', i, '%', ' (area = ', round(area.i, 0), ' km2)', 
+                                        sep = ''))
+          }
+      }
+      
+
+      
+      rasters <- list()
+      par(mfrow = c(3,2))
+      
+      for (i in c(10, 25, 50, 75, 90, 99)){
+        threshold <- qs[i]
+        raster.i <- sdm > threshold
+        rasters[[i]] <- raster.i
+        plot(raster.i, main = paste('> ', i, '%', ' (area = ', round(area.i, 0), ' km2)', sep = ''))
+      }
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#########################################
 
 ## simulate range contraction (yr 2)
   
-  change <- 0.1 #eventually generate a bunch of these
+  
   thresh.y2 <- thresh.y1 + change #modify if this should be percentile instead of hab suit value
   
   y2 <- sdm > thresh.y2
@@ -26,7 +116,7 @@ library(raster)
 
 ## generate sampling scheme  
 
-  nlocs = 100 ## eventually generate a bunch of these
+  
   
   grid <- spsample(range, n = nlocs, type = 'regular')
   random <- spsample(range, n = nlocs, type = 'random') ## eventually generate a bunch of these
