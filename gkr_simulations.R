@@ -1,4 +1,4 @@
-########### 
+
 library(raster)
 library(reshape)
 library(ggplot2)
@@ -8,7 +8,7 @@ library(ggplot2)
     
   rangesim <- function(sdm, p1, change, area.suit, range, nlocs){
     
-    area1 <- 70828.54 * p1 #70828.54km2 is the entire area of the range (so this will be constant)
+    area1 <- 70828.54 * p1    #70828.54km2 is the entire area of the range (so this will be constant)
       thresh1 <- area.suit$suitability[findInterval(area1, area.suit$km2)]
       year1 <- sdm > thresh1
     
@@ -43,10 +43,10 @@ library(ggplot2)
     
   ## LOOP:
     
-    ## FIRST: import sdm, range, and area.suit **any way to save these w the function?
+    ## FIRST: import sdm, range boundary, and area.suit table *any way to save these w the function?
     
       sdm <- raster('') #import SDM raster
-      range <- readOGR('') #import shapefile outline of sdm extent (try to make this more reproducible)
+      range <- readOGR('') #import shapefile outline of sdm extent (ideally, make this more reproducible)
       area.suit <- read.csv('gkr_percentile_areas.csv')
         area.suit <- area.suit[order(area.suit$km2),]
         
@@ -55,7 +55,7 @@ library(ggplot2)
 
       p1 <- 0.9
      #p1 <- seq(0.1, 0.9, 0.1)         #proportion occupied in year 1 (assume 90% for now)
-      changes <- seq(-0.9, 0.9, 0.1)    #range changes from 90% contraction to 90% expansion
+      changes <- seq(-0.9, 0.9, 0.1)   #range changes from 90% contraction to 90% expansion
       nlocs <- seq(50, 300, 10)        #number of trapping locations
       
       sim_vals <- list()
@@ -76,8 +76,6 @@ library(ggplot2)
     
       
 sim_vals  ## run time ~15 min
-
-## can't write to csv b/c list... any other way to store permanently? lots of csvs?
 
 
 ##### PLOT #####
