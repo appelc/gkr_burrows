@@ -1,79 +1,142 @@
 ########### 
 library(raster)
+library(reshape)
+library(ggplot2)
 
-    
-    ## define function 'range simulation':
-    
-      rangesim <- function(sdm, p1, change, area.suit, range, nlocs){
-        
-        area1 <- 70828.54 * p1 #70828.54km2 is the entire area of the range (this will be constant)
-          thresh1 <- area.suit$suitability[findInterval(area1, area.suit$km2)]
-          year1 <- sdm > thresh1
-        
-        area2 <- area1 * (1 + change)
-          thresh2 <- area.suit$suitability[findInterval(area2, area.suit$km2)]
-          year2 <- sdm > thresh2
-        
-        grid <- spsample(range, n = nlocs, type = 'regular')
-        random <- spsample(range, n = nlocs, type = 'random')
-        #strat <- 
-        
-        grid$pres1 <- extract(year1, grid)
-        random$pres1 <- extract(year1, random)
-        presence1 <- data.frame('grid' = sum(grid$pres1, na.rm = TRUE) / length(!is.na(grid$pres1)),
-                                'random' = sum(random$pres1, na.rm = TRUE) / length(random$pres1))
-        
-        grid$pres2 <- extract(year2, grid)
-        random$pres2 <- extract(year2, random)
-        presence2 <- data.frame('grid' = sum(grid$pres2, na.rm = TRUE) / length(grid$pres2),
-                                'random' = sum(random$pres2, na.rm = TRUE) / length(random$pres2))
-        
-        ideal <- presence1 * (1 + change)
-        ratios <- presence2 / ideal
 
-        rangesim <- ratios
-        return(rangesim)
-      }
+## define function 'range simulation':
+    
+  rangesim <- function(sdm, p1, change, area.suit, range, nlocs){
+    
+    area1 <- 70828.54 * p1 #70828.54km2 is the entire area of the range (so this will be constant)
+      thresh1 <- area.suit$suitability[findInterval(area1, area.suit$km2)]
+      year1 <- sdm > thresh1
+    
+    area2 <- area1 * (1 + change)
+      thresh2 <- area.suit$suitability[findInterval(area2, area.suit$km2)]
+      year2 <- sdm > thresh2
+    
+    grid <- spsample(range, n = nlocs, type = 'regular')
+    random <- spsample(range, n = nlocs, type = 'random')
+    #strat <- 
+    
+    grid$pres1 <- extract(year1, grid)
+    random$pres1 <- extract(year1, random)
+    presence1 <- data.frame('grid' = sum(grid$pres1, na.rm = TRUE) / length(!is.na(grid$pres1)),
+                            'random' = sum(random$pres1, na.rm = TRUE) / length(random$pres1))
+    
+    grid$pres2 <- extract(year2, grid)
+    random$pres2 <- extract(year2, random)
+    presence2 <- data.frame('grid' = sum(grid$pres2, na.rm = TRUE) / length(grid$pres2),
+                            'random' = sum(random$pres2, na.rm = TRUE) / length(random$pres2))
+    
+    ideal <- presence1 * (1 + change)
+    ratios <- presence2 / ideal
+
+    rangesim <- ratios
+    return(rangesim)
+  }
     
     
-    ### TEST!
-    
-    test.df <- NULL
-    test1 <- rangesim(sdm = sdm, p1 = 0.5, change = 0.1, area.suit = area.suit, range = range, nlocs = 300)
-    test.df <- rbind(test.df, data.frame(nlocs = '300', test1))
-    
+  
 #########################
     
   ## LOOP:
     
-    #import sdm, range, and area.suit
+    ## FIRST: import sdm, range, and area.suit **any way to save these w the function?
     
+      sdm <- raster('') #import SDM raster
+      range <- readOGR('') #import shapefile outline of sdm extent (try to make this more reproducible)
+      area.suit <- read.csv('gkr_percentile_areas.csv')
+        area.suit <- area.suit[order(area.suit$km2),]
+        
+  
     ## define parameters:
-    
-   # p1 <- seq(0.1, 0.9, 0.1)         #proportion occupied in year 1
-    p1 <- 0.9
-    change <- seq(-0.9, 0.9, 0.1)    #range changes from 90% contraction to 90% expansion
-    nlocs <- seq(50, 300, 10)        #number of trapping locations
-    
-    sim_vals <- list()
 
-    for (j in change){
-      yvals_j <- NULL
+      p1 <- 0.9
+     #p1 <- seq(0.1, 0.9, 0.1)         #proportion occupied in year 1 (assume 90% for now)
+      changes <- seq(-0.9, 0.9, 0.1)    #range changes from 90% contraction to 90% expansion
+      nlocs <- seq(50, 300, 10)        #number of trapping locations
+      
+      sim_vals <- list()
+
+    for (j in changes){
       change <- j
+      ratios_j <- NULL
+      
       for (i in nlocs){
         ratios <- rangesim(sdm, p1, j, area.suit, range, i)
         ratios_df <- data.frame('nlocs' = i, ratios)
-        ratios_j <- rbind(yvals_j, ratios_df)
+        ratios_j <- rbind(ratios_j, ratios_df)
       }
+      
       name_j <- paste(j*100)
       sim_vals[[name_j]] <- ratios_j
     }
     
-    
-    
-sim_vals
+      
+sim_vals  ## run time ~15 min
+
+## can't write to csv b/c list... any other way to store permanently? lots of csvs?
 
 
-    
-    
+##### PLOT #####
 
+  ## for just 1 change value (to compare grid/random):
+  
+      sim_vals_c <- melt(sim_vals[[1]], id = c('nlocs')) #replace 1 with c if we're looping; see below
+      colnames(sim_vals_c) <- c('nlocs', 'scheme', 'ratio')
+    
+    ggplot(sim_vals_c, aes(x = nlocs, y = ratio)) +
+      geom_point() +
+      facet_wrap('scheme', scales = 'free') + #we really DON'T want scales='free' but it adds y-axes to all plots. should be OK if we have coord_cartesian()
+      geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
+      coord_cartesian(ylim = c(0,2)) +
+      xlab('# trapping locations') + ylab('GKR detections / range change') +
+      labs(title = paste(changes[c], '% change', sep = '')) +
+      theme(axis.text.x = element_text(size = 14, colour = 'black'),
+            axis.text.y = element_text(size = 14, colour = 'black'),
+            axis.title = element_text(size = 14, colour = 'black'),
+            axis.ticks = element_line(colour = 'black', size = 0.8),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            strip.text = element_text(size= 14),
+            plot.title = element_text(size = rel(1.5), face = 'bold', hjust = 0.5))
+  
+    
+  ## ideally, plot all change values together:
+        
+    sim_vals_melt <- NULL    #first, need to put all data in a dataframe (instead of list of dataframes)
+    
+      for (c in 1:length(sim_vals)){
+        
+        sim_vals_c <- melt(sim_vals[[c]], id = c('nlocs'))
+        colnames(sim_vals_c) <- c('nlocs', 'scheme', 'ratio')
+        sim_vals_c$change <- paste(names(sim_vals)[c], '%', sep = '')
+        sim_vals_melt <- rbind(sim_vals_melt, sim_vals_c)
+        
+      }
+
+    head(sim_vals_melt)
+    
+    ## then plot:
+    
+    ggplot(sim_vals_melt, aes(x = nlocs, y = ratio, col = scheme)) +
+      geom_point() +
+      facet_wrap('change', scales = 'free') + #we really DON'T want scales='free' but it adds y-axes to all plots. should be OK if we have coord_cartesian()
+      geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
+      coord_cartesian(ylim = c(0,2)) +
+      xlab('# trapping locations') + ylab('GKR detections / range change') +
+      labs(title = paste('starting year = ', p1*100, '% occupied', sep = '')) +
+      theme(axis.text.x = element_text(size = 10, colour = 'black'),
+            axis.text.y = element_text(size = 10, colour = 'black'),
+            axis.title = element_text(size = 14, colour = 'black'),
+            axis.ticks = element_line(colour = 'black', size = 0.8),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            strip.text = element_text(size= 14),
+            legend.text = element_text(size = 12), legend.title = element_text(size = 14),
+            plot.title = element_text(size = rel(1.5), face = 'bold', hjust = 0.5))
+    
+    ## try to re-order from -90 to -10 instead of -10 to -90
+    
