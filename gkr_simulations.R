@@ -12,11 +12,11 @@ library(ggplot2)
     if ((p1 + change) <= 1) {  ##either use this test here or test denominator between 0 and 1 below
     
       area1 <- 70828.54 * p1    #70828.54km2 is the entire area of the range (so this will be constant)
-        thresh1 <- area.suit$suitability[findInterval(area1, area.suit$km2)]
+        thresh1 <- area.suit$suitability[which(abs(area.suit$km2 - area1) == min(abs(area.suit$km2 - area1)))]
         year1 <- sdm > thresh1
       
       area2 <- area1 * (1 + change)
-        thresh2 <- area.suit$suitability[findInterval(area2, area.suit$km2)]
+        thresh2 <- area.suit$suitability[which(abs(area.suit$km2 - area2) == min(abs(area.suit$km2 - area2)))]
         year2 <- sdm > thresh2
       
     ## could also test if area2 > 70828.54 here and stop if so (i.e., it expanded beyond the original range area)
