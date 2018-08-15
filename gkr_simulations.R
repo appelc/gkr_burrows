@@ -5,12 +5,46 @@ library(reshape)
 library(ggplot2)
 
 
+## generate sampling schemes
+
+  range <- readOGR('') # import shapefile outline of SDM extent (ideally, make this more reproducible,
+                       # but rasterToPolygon takes forever)
+
+  nlocs <- seq(50, 300, 10)  # number of trapping locations
+  
+  schemes <- list()
+  #grid.schemes <- list()
+  #random.schemes <- list()
+  #strat.schemes <- list()
+  
+  for (i in nlocs){
+    grid.i <- spsample(range, n = i, type = 'regular')
+    random.i <- spsample(range, n = i, type = 'random') # eventually generate a bunch of these
+    #strat.i <-
+    
+    schemes[[paste('grid_', i, sep = '')]] <- grid.i
+    schemes[[paste('random_', i, sep = '')]] <- random.i
+    #grid.schemes[[paste('grid_', i, sep = '')]] <- grid.i
+    #random.schemes[[paste('rand_', i, sep = '')]] <- random.i
+    #strat.schemes[[paste('strat_', i, sep = '')]] <- strat.i
+  }
+  
+   ## see an example:
+  
+    plot(range)
+    plot(grid.schemes$grid_100, add = TRUE)
+    plot(random.schemes$rand_100, add = TRUE, col = 'red')
+    
+   ## save these as shapefiles? they're stored in memory but will be diff. in new session, computer, etc.
+   ## (what's the best way to store a list of SpatialPoints objects?)
+    
+    
 ## define function 'range simulation':
     
-  rangesim <- function(sdm, p1, change, area.suit, range, nlocs){
+  rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
     
-    if ((p1 + change) <= 1) {  ##either use this test here or test denominator between 0 and 1 below
-    
+    if ((p1 + change) <= 1) {  
+      
       area1 <- 70828.54 * p1    #70828.54km2 is the entire area of the range (so this will be constant)
         thresh1 <- area.suit$suitability[which(abs(area.suit$km2 - area1) == min(abs(area.suit$km2 - area1)))]
         year1 <- sdm > thresh1
@@ -19,10 +53,8 @@ library(ggplot2)
         thresh2 <- area.suit$suitability[which(abs(area.suit$km2 - area2) == min(abs(area.suit$km2 - area2)))]
         year2 <- sdm > thresh2
       
-    ## could also test if area2 > 70828.54 here and stop if so (i.e., it expanded beyond the original range area)
-        
-      grid <- spsample(range, n = nlocs, type = 'regular')
-      random <- spsample(range, n = nlocs, type = 'random')
+      grid <- schemes[[paste('grid_', nlocs, sep = '')]]
+      random <- schemes[[paste('random_', nlocs, sep = '')]]
       #strat <- 
       
       grid$pres1 <- extract(year1, grid)
@@ -36,12 +68,7 @@ library(ggplot2)
                               'random' = sum(random$pres2, na.rm = TRUE) / length(random$pres2))
       
       expected <- presence1 * (1 + change)
-      ratios <- data.frame('grid' = NA, 'random' = NA) ##if testing p1 + change <= 1 above, remove this 'ifelse' loop
-      
-        for (e in 1:length(expected)) {
-              ratios.e <- ifelse(expected[e] >= 0 && expected[e] <= 1, presence2[e]/expected[e], NA)
-              ratios[e] <- ratios.e
-        }
+      ratios <- presence2 / expected
 
     } else {
       
@@ -59,85 +86,84 @@ library(ggplot2)
     
   ## LOOP
     
-    ## FIRST: import sdm, range boundary, and area.suit table *any way to save these w the function?
+    ## FIRST: import sdm and area.suit table (any way to save these w the function?)
     
       sdm <- raster('') #import SDM raster
-      range <- readOGR('') #import shapefile outline of sdm extent (ideally, make this more reproducible)
-      area.suit <- read.csv('gkr_percentile_areas.csv')
-        area.suit <- area.suit[order(area.suit$km2),]
+      area.suit <- read.csv('gkr_percentile_areas_001.csv')
   
     ## define parameters:
 
-      p1 <- 0.2                        #proportion occupied in starting year
+      p1 <- seq(0.1, 1, 0.1)           #proportion occupied in starting year
       changes <- seq(-0.9, 0.9, 0.1)   #range changes from 90% contraction to 90% expansion
       nlocs <- seq(50, 300, 10)        #number of trapping locations
       
-      sim_vals <- list()
+ 
+  ## this will take a while: 
+      
+  sim_vals <- list()
+  
+  for (k in p1) {
 
+    ratios_k <- NULL
+    
     for (j in changes){
-      change <- j
-      ratios_j <- NULL
       
       for (i in nlocs){
-        ratios <- rangesim(sdm, p1, j, area.suit, range, i)
-        ratios_df <- data.frame('nlocs' = i, ratios)
-        ratios_j <- rbind(ratios_j, ratios_df)
+        ratios <- rangesim(sdm, p1 = k, change = j, area.suit, schemes, nlocs = i)
+        ratios_df <- melt(data.frame('nlocs' = i, ratios), id = 'nlocs')
+        colnames(ratios_df) <- c('nlocs', 'scheme', 'ratio')
+        ratios_df$change <- paste(j*100, '%', sep = '')
+        ratios_k <- rbind(ratios_k, ratios_df)
       }
       
-      name_j <- paste(j*100)
-      sim_vals[[name_j]] <- ratios_j
+      #name_j <- paste(j*100)
+      #sim_vals[[name_j]] <- ratios_j
     }
     
+    sim_vals[[paste(k*100, '% occupied', sep = '')]] <- ratios_k
+    
+  }  
       
-sim_vals  ## run time ~15 min
+sim_vals
 
 
 ##### PLOT #####
 
-    sim_vals_melt <- NULL    #first, need to put all data in a dataframe (instead of list of dataframes)
-    
-      for (c in 1:length(sim_vals)){
-        sim_vals_c <- melt(sim_vals[[c]], id = c('nlocs'))
-        colnames(sim_vals_c) <- c('nlocs', 'scheme', 'ratio')
-        sim_vals_c$change <- paste(names(sim_vals)[c], '%', sep = '')
-        sim_vals_melt <- rbind(sim_vals_melt, sim_vals_c)
+  for (a in 1:length(sim_vals)){
+      names(sim_vals)[a]
+      sim_vals_melt <- sim_vals[[a]]
+      sim_vals_melt$change <- factor(sim_vals_melt$change, 
+                                     levels = unique(sim_vals_melt$change)) #reorder -90 to -10
+      sim_vals_melt <- sim_vals_melt[!is.na(sim_vals_melt$ratio),] #remove NAs
+        
+     g <- ggplot(sim_vals_melt, aes(x = nlocs, y = ratio, col = scheme)) +
+          geom_point() +
+          facet_wrap('change', scales = 'free') + 
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
+          coord_cartesian(ylim = c(0,2), xlim = c(50,300)) +
+          xlab('# trapping locations') + ylab('Estimated vs. expected trap detections') +
+          labs(title = paste('starting year = ', names(sim_vals)[a], sep = '')) +
+          theme(axis.text.x = element_text(size = 10, colour = 'black'),
+                axis.text.y = element_text(size = 10, colour = 'black'),
+                axis.title = element_text(size = 14, colour = 'black'),
+                axis.ticks = element_line(colour = 'black', size = 0.8),
+                axis.line.x = element_line(size = 0.5, colour = 'black'),
+                axis.line.y = element_line(size = 0.5, colour = 'black'),
+                strip.text = element_text(size= 14),
+                legend.text = element_text(size = 12), legend.title = element_text(size = 14),
+                plot.title = element_text(size = rel(1.5), face = 'bold', hjust = 0.5))
+        
+      tiff(paste('sim_figures/081418/starting_', substr(names(sim_vals)[a], start = 1, stop = 2), 
+                 '.tif', sep = ''), width = 800, height = 500)
+      plot(g)
+      dev.off()
+  
+      write.csv(sim_vals_melt, paste('spreadsheets/081418/simvals_', names(sim_vals)[a], 
+                                     '.csv', sep = ''))
       }
 
-      #assign factor levels in order from -90 to 90
-        sim_vals_melt$change <- factor(sim_vals_melt$change, levels = unique(sim_vals_melt$change)) 
-          
-      #remove NA rows (e.g. where 'expected' > 1)
-        sim_vals_melt <- sim_vals_melt[!is.na(sim_vals_melt$ratio),]
-          
-      ## then plot:
-    
-        ## (if from saved dataframe): 
-            #p1 <- 0.2
-            #sim_vals_melt <- sim_vals_20
-        
-      ggplot(sim_vals_melt, aes(x = nlocs, y = ratio, col = scheme)) +
-            geom_point() +
-            facet_wrap('change', scales = 'free') + 
-            geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
-            coord_cartesian(ylim = c(0,2), xlim = c(50,300)) +
-            xlab('# trapping locations') + ylab('Estimated vs. expected trap detections') +
-            labs(title = paste('starting year = ', p1*100, '% occupied', sep = '')) +
-            theme(axis.text.x = element_text(size = 10, colour = 'black'),
-                  axis.text.y = element_text(size = 10, colour = 'black'),
-                  axis.title = element_text(size = 14, colour = 'black'),
-                  axis.ticks = element_line(colour = 'black', size = 0.8),
-                  axis.line.x = element_line(size = 0.5, colour = 'black'),
-                  axis.line.y = element_line(size = 0.5, colour = 'black'),
-                  strip.text = element_text(size= 14),
-                  legend.text = element_text(size = 12), legend.title = element_text(size = 14),
-                  plot.title = element_text(size = rel(1.5), face = 'bold', hjust = 0.5))
-     
-      #export 800 x 500
-        
-      ## After making figure for each starting year scenario, save dataframe so we can reproduce figure
-          sim_vals_20 <- sim_vals_melt
-          write.csv(sim_vals_20, 'spreadsheets/sim_vals_20_081018.csv') 
-        
+
+#################
         
   ## Figure thoughts:
         
@@ -151,7 +177,7 @@ sim_vals  ## run time ~15 min
         
         
    
-################# OLD CODE ####################
+################# ALTERNATIVE PLOT ####################
         
   ## plots for for just 1 change value at a time (to compare grid/random side by side):
     
