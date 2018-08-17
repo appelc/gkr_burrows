@@ -50,7 +50,7 @@ library(ggplot2)
       lapply(1:length(schemes.carrizo), function(x){
             spdf <- SpatialPointsDataFrame(coords = schemes.carrizo[[x]]@coords,
                                            data = as.data.frame(schemes.carrizo[[x]]))
-            writeOGR(spdf, dsn = 'carrizo_flights/schemes', 
+            writeOGR(spdf, dsn = 'carrizo_flights/schemes_carrizo', 
                      layer = paste(names(schemes)[x]), driver = 'ESRI Shapefile')
              })
       
@@ -64,16 +64,18 @@ library(ggplot2)
 
 ## 2. define new function:
         
-    rangesim_czo <- function(y, flights, schemes.carrizo, nlocs){ 
-          ## define: year1, nlocs
+    rangesim_czo <- function(y1, y2, flights, schemes.carrizo, nlocs){ 
+          ## define: y1, y2, nlocs
           ## input: flights (list), schemes.carrizo (list)
-  
+          ## if only concerned about 3 scenarios (change btwn 4 years), just define 'y'  for y1
+          ##    and change 'range2 <- flights[[y1+1]]
+      
       # year1
-        range1 <- flights[[y]]
+        range1 <- flights[[y1]]
         area1 <- gArea(range1) / 1e06
   
       # year2      
-        range2 <- flights[[y+1]]
+        range2 <- flights[[y2]] 
         area2 <- gArea(range2)  / 1e06
     
           # visualize:
@@ -111,7 +113,7 @@ library(ggplot2)
     
     ## test
   
-      test <- rangesim_czo(y = 1, flights, schemes.carrizo, nlocs = 50)    
+      test <- rangesim_czo(y1 = 1, y2 = 3, flights, schemes.carrizo, nlocs = 50)    
         ## starting year = 1 (list index for 'flights') & nlocs = 50
         ## try manually above & compare 'ratios'
     
@@ -121,24 +123,29 @@ library(ggplot2)
       nlocs <- seq(50, 300, 10)
       sim_vals_czo <- list()
           
-        for (j in 1:(length(flights)-1)){
+      for (j in 1:(length(flights))){
+        
+        for (k in 1:(length(flights))){
           ratios.j <- NULL
           
           for (n in nlocs){
-                ratios <- rangesim_czo(y = j, flights, schemes.carrizo, nlocs = n)
+                ratios <- rangesim_czo(y1 = j, y2 = k, flights, schemes.carrizo, nlocs = n)
                 ratios_df <- melt(data.frame('nlocs' = n, ratios), id = c('nlocs', 'change'))
                 colnames(ratios_df) <- c('nlocs', 'change', 'scheme', 'ratio')
                 ratios_df$change <- paste(round(ratios_df$change, 2)*100, '%', sep = '')
                 ratios.j <- rbind(ratios.j, ratios_df)
           }
-          listname <- paste(substr(names(flights)[j], 0, 4), 'to', substr(names(flights)[j+1], 0, 4))
+          listname <- paste(substr(names(flights)[j], 0, 4), 'to', substr(names(flights)[k], 0, 4))
           sim_vals_czo[[listname]] <- ratios.j
           
         }
+        
+        
+      }
       
     ## did it work correctly? pick an example to test (e.g., y = 2, nlocs = 150)
     ## should match '2006 to 2010', nlocs = 150
-        rangesim_czo(y = 2, flights, schemes.carrizo, nlocs = 150)
+        rangesim_czo(y1 = 2, y2 = 3, flights, schemes.carrizo, nlocs = 150)
         sim_vals_czo$`2006 to 2010`[sim_vals_czo$`2006 to 2010`$nlocs == 150,]
             ## yes, it works!
   
@@ -153,11 +160,14 @@ library(ggplot2)
       sim_vals_czo_melt <- rbind(sim_vals_czo_melt, sim_vals_czo_a)
     } 
 
+  ## exclude same-year combos (e.g., '2001 to 2001') **there's probably a better way to do this**
+  sim_vals_czo_melt <- sim_vals_czo_melt[sim_vals_czo_melt$ratio != 1,]
+  
         ggplot(sim_vals_czo_melt, aes(x = nlocs, y = ratio, col = scheme)) +
                 geom_point() +
                 facet_wrap(c('name', 'change'), scales = 'free') + 
                 geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
-                coord_cartesian(ylim = c(0.5,1.5), xlim = c(50,300)) +
+                coord_cartesian(ylim = c(0,2), xlim = c(50,300)) +
                 xlab('# trapping locations') + ylab('Estimated vs. expected trap detections') +
                 theme(axis.text.x = element_text(size = 10, colour = 'black'),
                       axis.text.y = element_text(size = 10, colour = 'black'),
