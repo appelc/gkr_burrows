@@ -11,50 +11,68 @@ library(ggplot2)
 
 ## 1. generate sampling schemes (skip if using existing shapefiles)
 
-    range <- readOGR('C:/Users/cla236/Documents', layer = 'sdm_outline_shp')  
+    range <- readOGR('inputs_ignore', layer = 'sdm_outline_shp')  
     # import shapefile outline of SDM extent 
     # (ideally, make this reproducible in R, but 'rasterToPolygon' takes forever)
     
     nlocs <- seq(50, 300, 10)  # number of trapping locations
+    nrandom <- 50 # number of random grids
     
     schemes <- list()
   
       for (i in nlocs){
         grid.i <- spsample(range, n = i, type = 'regular')
-        random.i <- spsample(range, n = i, type = 'random') # eventually generate a bunch of these
-        #strat.i <-
-        
         schemes[[paste('grid_', i, sep = '')]] <- grid.i
-        schemes[[paste('random_', i, sep = '')]] <- random.i
+        
+          rand.schemes <- list()
+          
+          for (h in 1:nrandom){
+            random.h <- spsample(range, n = i, type = 'random')
+           # rand.schemes[[paste('random_', i, '_', h, sep = '')]] <- random.h
+            schemes[[paste('random', i, '_', h, sep = '')]] <- random.h
+          }
+        
+        #strat.i <- 
+        
+        #schemes[[paste('random_', i, sep = '')]] <- rand.schemes # add a list to a list?
       }
 
     ## save (optional):
+    ## ** this takes a long time. just do it when we have a final set of sampling schemes. **
       
-        lapply(1:length(schemes), function(x){
-          spdf <- SpatialPointsDataFrame(coords = schemes[[x]]@coords,
-                                         data = as.data.frame(schemes[[x]]))
-          writeOGR(spdf, dsn = 'C:/Users/cla236/Documents/schemes', layer = paste(names(schemes)[x]),
-                   driver = 'ESRI Shapefile')
-        })
+     #   lapply(1:length(schemes), function(x){
+     #     spdf <- SpatialPointsDataFrame(coords = schemes[[x]]@coords,
+     #                                    data = as.data.frame(schemes[[x]]))
+     #     writeOGR(spdf, dsn = 'inputs_ignore/schemes', layer = paste(names(schemes)[x]),
+     #              driver = 'ESRI Shapefile')
+     #   })
   
         
 ## 2. load sampling scheme shapefiles (skip if step 1 was run)
         
-    schemes.files <- list.files('C:/Users/cla236/Documents/schemes', pattern ='\\.shp$',
+    schemes.files <- list.files('inputs_ignore/schemes', pattern ='\\.shp$',
                                 full.names = TRUE)
     schemes <- lapply(schemes.files, shapefile)
-    schemes.names <- sub('.shp.*', '', list.files('C:/Users/cla236/Documents/schemes', 
-                                                  pattern ='\\.shp$'))
+    schemes.names <- sub('.shp.*', '', list.files('inputs_ignore/schemes', pattern ='\\.shp$'))
     names(schemes) <- schemes.names
     
     ## see an example:
     
       plot(range)
       plot(schemes$grid_50, add = TRUE)
-      plot(schemes$random_50, add = TRUE, col = 'red')
+      plot(schemes$random50_1, add = TRUE, col = 'red')
+      plot(schemes$random50_25, add = TRUE, col = 'green')
 
 
 ## 3. define function 'range simulation':
+      
+    # DESCRIPTION OF INPUTS
+      # sdm: raster of habitat suitablility for GKR 
+      # p1: proportion of range occupied in year 1
+      # change: range expansion/contraction
+      # area.suit: table of habitat suitability thresholds corresponding w/ area occupied
+      # schemes: list of previously generated sampling schemes
+      # nlocs: number of trapping locations
 
 rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
   
@@ -68,32 +86,45 @@ rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
     thresh2 <- area.suit$suitability[which(abs(area.suit$km2 - area2) == min(abs(area.suit$km2 - area2)))]
     year2 <- sdm > thresh2
     
-    grid <- schemes[[paste('grid_', nlocs, sep = '')]]
-    random <- schemes[[paste('random_', nlocs, sep = '')]]
-    #strat <- 
+  grid <- schemes[[paste('grid_', nlocs, sep = '')]]
+    grid_pres1 <- sum(extract(year1, grid), na.rm = TRUE) / length(!is.na(extract(year1, grid)))
+    grid_pres2 <- sum(extract(year2, grid), na.rm = TRUE) / length(!is.na(extract(year1, grid)))
+  
+  randoms <- list()
+    for (h in 1:nrandom){
+        r <- schemes[[paste('random', nlocs, '_', h, sep = '')]]
+        randoms[[paste('random', nlocs, '_', h, sep = '')]] <- r
+    }
+  
+    rand_pres1 <- sapply(1:length(randoms), simplify = TRUE, function(x){
+                            sum(extract(year1, randoms[[x]]), na.rm = TRUE) / 
+                            length(!is.na(extract(year1, randoms[[x]])))})
+    rand_pres2 <- sapply(1:length(randoms), simplify = TRUE, function(x){
+                            sum(extract(year2, randoms[[x]]), na.rm = TRUE) / 
+                            length(!is.na(extract(year2, randoms[[x]])))})
     
-    grid$pres1 <- extract(year1, grid)
-    random$pres1 <- extract(year1, random)
-    presence1 <- data.frame('grid' = sum(grid$pres1, na.rm = TRUE) / length(!is.na(grid$pres1)),
-                            'random' = sum(random$pres1, na.rm = TRUE) / length(random$pres1))
+    presence <- data.frame('scheme' = c('grid', rep('random', length(rand_pres1))), 
+                            'pres1' = c(grid_pres1, rand_pres1),
+                            'pres2' = c(grid_pres2, rand_pres2))
     
-    grid$pres2 <- extract(year2, grid)
-    random$pres2 <- extract(year2, random)
-    presence2 <- data.frame('grid' = sum(grid$pres2, na.rm = TRUE) / length(grid$pres2),
-                            'random' = sum(random$pres2, na.rm = TRUE) / length(random$pres2))
+    presence$expected <- presence$pres1 * (1 + change)
+    presence$ratio <- presence$pres2 / presence$expected  
     
-    expected <- presence1 * (1 + change)
-    ratios <- presence2 / expected
+  ratios <- presence[,c('scheme', 'ratio')]
     
   } else {
     
-    ratios <- data.frame('grid' = NA, 'random' = NA)
+    ratios <- data.frame('scheme' = c('grid', 'random'), 'ratio' = c(NA, NA))
     
   }
   
   rangesim <- ratios
   return(rangesim)
 }
+
+### TEST:
+
+rangesim(sdm, p1 = 0.9, change = -0.25, area.suit, schemes, nlocs = 100)
 
 
 
@@ -103,7 +134,7 @@ rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
 
     ## import sdm and area.suit table (any way to save these w the function?)
     
-      sdm <- raster('C:/Users/cla236/Documents/sdm')
+      sdm <- raster('inputs_ignore/sdm')
       area.suit <- read.csv('gkr_percentile_areas_001.csv')
     
     ## define parameters:
@@ -114,6 +145,8 @@ rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
 
 
     ## loop -- this will take a while (~ 30 min): 
+      ## (alternatively, set individual p1 to do by hand)
+      p1 <- 0.9
     
     sim_vals <- list()
     
@@ -124,10 +157,9 @@ rangesim <- function(sdm, p1, change, area.suit, schemes, nlocs){
         
         for (i in nlocs){
           ratios <- rangesim(sdm, p1 = k, change = j, area.suit, schemes, nlocs = i)
-          ratios_df <- melt(data.frame('nlocs' = i, ratios), id = 'nlocs')
-          colnames(ratios_df) <- c('nlocs', 'scheme', 'ratio')
-          ratios_df$change <- paste(j*100, '%', sep = '')
-          ratios_k <- rbind(ratios_k, ratios_df)
+          ratios$nlocs <- rep(i, nrow(ratios))
+          ratios$change <- paste(j*100, '%', sep = '')
+          ratios_k <- rbind(ratios_k, ratios)
         }
       }
       sim_vals[[paste(k*100, '% occupied', sep = '')]] <- ratios_k
