@@ -7,36 +7,44 @@ library(rgeos)
 
 
 ## import sdm raster & convert to SPDF
-  sdm <- raster('inputs_ignore/sdm')
-  sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
-
-  range <- readOGR('inputs_ignore', layer = 'sdm_outline_shp')  
+    sdm <- raster('inputs_ignore/sdm')
+    sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
+    
+    range <- readOGR('inputs_ignore', layer = 'sdm_outline_shp')  
 
 ## ROADS
 
   # what counties do we need?
-      ca_counties <- counties(state = 'CA', cb = TRUE) #cb = generalized (smaller file size)
-      ca_counties <- spTransform(ca_counties, crs(sdm))
-
-      counties_extr <- over(sdm.spdf, ca_counties)$NAME
-      counties_list <- unique(counties_extr) #these are the ones we need layers for
-      
+    ca_counties <- counties(state = 'CA', cb = TRUE) #cb = generalized (smaller file size)
+    ca_counties <- spTransform(ca_counties, crs(sdm))
+    
+    counties_extr <- over(sdm.spdf, ca_counties)$NAME
+    counties_list <- unique(counties_extr) #these are the ones we need layers for
+    
   # download roads layers for these counties
-      roads_ca <- rbind_tigris(
-        lapply(
-          counties_list, function(x) roads(state = 'CA', county = x)
+    roads_ca <- rbind_tigris(
+      lapply(
+        counties_list, function(x) roads(state = 'CA', county = x)
         )
       )
-      
-  # crop to 'range' shapefile
-      roads_crop <- gIntersection(roads_ca, range)
-      roads_crop <- gIntersection(range, roads_ca)
+    writeOGR(roads_ca, dsn = 'inputs_ignore/vlab', layer = 'roads_ca', driver = 'ESRI Shapefile')
 
-## PUBLIC LANDS
-      
-    # import 'super units' layer, downlaoded from CA protected areas database website
-      ca_sunits <- readOGR('inputs_ignore/CPAD_2017a', layer = 'CPAD_2017a_SuperUnits')  
-      
-    # crop to 'range' shapefile
-      
-      
+  # crop to 'range' shapefile
+    #roads_crop <- gIntersection(roads_ca, range) ##takes way too long
+    roads_ca <- spTransform(roads_ca, crs(range))
+    roads_crop <- crop(roads_ca, range)
+    writeOGR(roads_crop, dsn = 'inputs_ignore/vlab', layer = 'roads_crop', driver = 'ESRI Shapefile')
+    
+    ## copy 'inputs_ignore/vlab' folder to Google Drive before exiting vlab ##
+
+    
+## LAND OWNERSHIP
+
+  # import 'super units' layer, downlaoded from CA protected areas database website
+    ca_sunits <- readOGR('inputs_ignore/CPAD_2017a', layer = 'CPAD_2017a_SuperUnits')  
+
+  # crop to 'range' shapefile
+    ca_sunits <- spTransform(ca_sunits, crs(range))
+    land_crop <- crop(ca_sunits, range)
+    writeOGR(land_crop, dsn = 'inputs_ignore/vlab', layer = 'land_crop', driver = 'ESRI Shapefile')    
+
