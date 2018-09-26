@@ -7,10 +7,10 @@ library(rgeos)
 
 
 ## import sdm raster & convert to SPDF
-    sdm <- raster('inputs_ignore/sdm')
-    sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
-    
-    range <- readOGR('inputs_ignore', layer = 'sdm_outline_shp')  
+  sdm <- raster('inputs_ignore/sdm')
+  sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
+  
+  range <- readOGR(dsn = 'inputs_ignore/sdm_outline_shp', layer = 'sdm_outline_shp')  
 
 ## ROADS
 
@@ -25,19 +25,18 @@ library(rgeos)
     roads_ca <- rbind_tigris(
       lapply(
         counties_list, function(x) roads(state = 'CA', county = x)
-        )
       )
+    )
     writeOGR(roads_ca, dsn = 'inputs_ignore/vlab', layer = 'roads_ca', driver = 'ESRI Shapefile')
-
+  
   # crop to 'range' shapefile
-    #roads_crop <- gIntersection(roads_ca, range) ##takes way too long
     roads_ca <- spTransform(roads_ca, crs(range))
     roads_crop <- crop(roads_ca, range)
     writeOGR(roads_crop, dsn = 'inputs_ignore/vlab', layer = 'roads_crop', driver = 'ESRI Shapefile')
     
-    ## copy 'inputs_ignore/vlab' folder to Google Drive before exiting vlab ##
+  ## copy 'inputs_ignore/vlab' folder to Google Drive before exiting vlab ##
 
-    
+
 ## LAND OWNERSHIP
 
   # import 'super units' layer, downlaoded from CA protected areas database website
@@ -48,3 +47,21 @@ library(rgeos)
     land_crop <- crop(ca_sunits, range)
     writeOGR(land_crop, dsn = 'inputs_ignore/vlab', layer = 'land_crop', driver = 'ESRI Shapefile')    
 
+    
+############
+    
+  ## Import if already created these layers:
+    
+    roads_crop <- readOGR(dsn = 'inputs_ignore/vlab', layer = 'roads_crop')
+    land_crop <- readOGR(dsn = 'inputs_ignore/vlab', layer = 'land_crop')    
+    
+  ## Buffer:
+    
+    ## crop roads to lands
+      roads_public <- crop(roads_crop, land_crop)
+      roads_public <- gIntersection(roads_crop, land_crop)
+    
+    test_buffer_roads <- gBuffer(roads_crop, width = 250)
+    
+    
+    
