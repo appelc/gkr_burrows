@@ -12,6 +12,16 @@ library(rgdal)
 ## remove lowest 5% of habiat suitability
     sdm.spdf <- sdm.spdf[sdm.spdf@data$sdm > sdm.pctle[50],]
 
+## import buffered layer:
+  roads_buffered <- readOGR(dsn = 'inputs_ignore', layer = 'roads_both_buff_dis')
+  
+## crop sdm to buffered area
+  sdm.filtered <- crop(sdm.spdf, roads_buffered) #cannot allocate vector of size 356 kb
+  sdm.filtered <- crop(sdm, roads_buffered) #doesn't work b/c one is raster and one is sp?
+  sdm.filtered <- mask(sdm.filtered, roads_buffered)
+  writeRaster(sdm.filtered, 'sdm.filtered2.tif')
+    ## still doesn't appear to work; what next?
+
 ## define function
   
   # thresh: breakpoint btwn strata, e.g., 0.90 = 90th percentile of habitat suitability values
