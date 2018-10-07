@@ -113,7 +113,7 @@ library(rgdal)
   plot(schemes$`100locs`$strat$thresh80, add = TRUE, col = 'blue')
 
 
-## now to export them all: (**FINISH THIS, MAKE SURE IT WORKS WITH THE NEW LIST INDEXING**)
+## now to export them all: 
 
   #grid
   lapply(1:length(schemes), function(x){
