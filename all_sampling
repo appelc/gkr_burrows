@@ -6,69 +6,69 @@ library(rgdal)
   sdm <- raster('inputs_ignore/sdm')
   sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
 
-## calculate percentiles of habitat suitability
-  sdm.pctle <- quantile(sdm.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
-  
 ## remove lowest 5% of habiat suitability & convert back to raster
+  sdm.pctle <- quantile(sdm.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
   sdm.spdf <- sdm.spdf[sdm.spdf@data$sdm > sdm.pctle[50],]
   sdm <- raster(sdm.spdf)
 
-## import buffered layer, project & crop to same CRS & extent as SDM raster
-  roads.raster <- raster('outputs/roads_raster_agg2.tif')
-  roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm.gr5),
+## import buffered roads layer, project & crop to same CRS & extent as SDM raster
+  roads.raster <- raster('inputs_ignore/roads_raster_agg2.tif')
+  roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm),
                                 method = 'ngb', alignOnly = TRUE)
-  roads.raster <- crop(roads.raster, extent(sdm.gr5))
-  
-## extract habitat suitability values within buffered area
+  roads.raster <- crop(roads.raster, extent(sdm))
+
+## extract habitat suitability values within buffered areas to create new raster
   sdm.mask <- mask(sdm, roads.raster)
 
 ## convert new raster to SPDF and calculate percentiles of habitat suitability
-   masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
-   masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
-   
+  masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
+  masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
 
-## define function for generating sampling locations
-   
-  # masked.spdf: habitat suitability SPDF, minus bottom 5% & masked to buffered road area
-  # masked.pctle: percentiles of habitat suitability calculated from masked.spdf
-  # nlocs: number of sampling locations (for grid & random sampling) 
-  #         [for stratified sampling, each strata has nlocs/2 sampling locations]
-  # nrandom: number of iterations (for random sampling)
-  # thresh: breakpoint btwn strata (for stratified sampling)
-  #         [e.g., 0.90 = 90th percentile of habitat suitability values]
 
-sample.grid.rand <- function(masked.spdf, nlocs, nrandom){
+## define functions for generating sampling locations
+
+  # GRID/RANDOM
+    # masked.spdf: habitat suitability SPDF, minus bottom 5% & masked to buffered road area
+    # nlocs: number of sampling locations (for grid & random sampling)
+    # nrandom: number of iterations (for random sampling)
   
-  # generate grid sampling scheme based on nlocs
-    grid <- spsample(masked.spdf, n = nlocs, type = 'regular')
-  
-  # generate random sampling scheme(s) based on nlocs and nrandom
-    randoms <- list()
+  sample.grid.rand <- function(masked.spdf, nlocs, nrandom){
+    
+    # generate grid sampling scheme with nlocs
+      grid <- spsample(masked.spdf, n = nlocs, type = 'regular')
+    
+    # generate random sampling scheme(s) with nlocs and nrandom
+      randoms <- list()
       for (h in 1:nrandom){
         random.h <- spsample(masked.spdf, n = nlocs, type = 'random')
         randoms[[paste('random_', nlocs, '_', h, sep = '')]] <- random.h
       }
+      
+    # combine & output
+      sample.grid.rand <- list('grid' = grid, 'random' = randoms)
+      return(sample.grid.rand)
+  }
 
-  # combine into a list
-  sample.grid.rand <- list('grid' = grid, 'random' = randoms)
-  return(sample.grid.rand)
-}
-   
-sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
-  
-  # create SPDFs of upper/lower strata based on 'thresh' value
-    strat.upper <- masked.spdf[masked.spdf@data$sdm >= masked.pctle[thresh*1000],]
-    strat.lower <- masked.spdf[masked.spdf@data$sdm < masked.pctle[thresh*1000],]
-  
-  # sample within upper/lower strata based on n.upper/n.lower
-    sample.upper <- spsample(strat.upper, n = nlocs/2, type = 'regular')
-    sample.lower <- spsample(strat.lower, n = nlocs/2, type = 'regular')
-    strat.both <- rbind(sample.upper, sample.lower)  
+  # STRATIFIED
+    # masked.pctle: percentiles of habitat suitability calculated from masked.spdf
+    # nlocs: for stratified sampling, each strata has nlocs/2 sampling locations
+    # thresh: breakpoint btwn strata -- e.g., 0.90 = 90th percentile of habitat suitability
+
+  sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
     
-  # combine all schemes into a list
-  sample.strat <- strat.both
-  return(sample.strat)
-}
+    # create SPDFs of upper/lower strata based on 'thresh' value
+      strat.upper <- masked.spdf[masked.spdf@data$sdm >= masked.pctle[thresh*1000],]
+      strat.lower <- masked.spdf[masked.spdf@data$sdm < masked.pctle[thresh*1000],]
+    
+    # sample within upper/lower strata based on nlocs
+      sample.upper <- spsample(strat.upper, n = nlocs/2, type = 'regular')
+      sample.lower <- spsample(strat.lower, n = nlocs/2, type = 'regular')
+      strat.both <- rbind(sample.upper, sample.lower)  
+    
+    # combine & output
+      sample.strat <- strat.both
+      return(sample.strat)
+  }
 
 
 # example:
@@ -76,100 +76,73 @@ sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
     test1 <- sample.grid.rand(masked.spdf, nlocs = 100, nrandom = 50)
     test2 <- sample.strat(masked.spdf, masked.pctle, nlocs = 100, thresh = 0.80)
     b <- Sys.time()
-    b-a # < 1 second (~5 seconds when including raster->SPDF and percentiles steps in function)
+    b-a # < 1 second 
     
-      plot(sdm.mask)
-      plot(test1$grid, add = TRUE)
-      plot(test1$random$random_100_10, add = TRUE, col = 'red')
-      plot(test2, add = TRUE, col = 'blue')
+    plot(sdm.mask)
+    plot(test1$grid, add = TRUE)
+    plot(test1$random$random_100_10, add = TRUE, col = 'red')
+    plot(test2, add = TRUE, col = 'blue')
+    
 
-      
 ## loop through to generate sampling schemes:  
 
   nlocs <- seq(50, 300, 10)       # number of trapping locations
   nrandom <- 50                   # number of random grids
   thresh <- seq(0.10, 0.90, 0.10) # is it realistic to use a threshold < 0.50?
-
+  
   schemes <- list()
 
   for (a in nlocs){
-  #  schemes.a <- list()
     grid.rand <- sample.grid.rand(masked.spdf, a, nrandom)
     schemes[[paste(a, 'locs', sep = '')]] <- grid.rand
     
-    for (b in thresh){
-      strat <- sample.strat(masked.spdf, masked.pctle, nlocs = a, thresh = b)
-      schemes[[paste(a, 'locs', sep = '')]][['strat']] <- strat
-    }
+      strat.list <- list()
+        for (b in thresh){
+          strat <- sample.strat(masked.spdf, masked.pctle, nlocs = a, thresh = b)
+          strat.list[[paste('thresh', b*100, sep = '')]] <- strat
+        }
     
+    schemes[[paste(a, 'locs', sep = '')]][['strat']] <- strat.list
   }
-  
-  
+
+
 ## lots of lists within lists... an example:
-  
+
   plot(schemes$`100locs`$grid)
   plot(schemes$`100locs`$random$random_100_10, add = TRUE, col = 'red')
-  plot(schemes$`100locs`$strat, add = TRUE, col = 'blue')
-  
-  
+  plot(schemes$`100locs`$strat$thresh80, add = TRUE, col = 'blue')
+
+
 ## now to export them all: (**FINISH THIS, MAKE SURE IT WORKS WITH THE NEW LIST INDEXING**)
-  
-#grid
+
+  #grid
   lapply(1:length(schemes), function(x){
-          spdf <- SpatialPointsDataFrame(coords = schemes[[x]]$grid@coords,
-                                         data = as.data.frame(schemes[[x]]$grid))
-          writeOGR(spdf, dsn = 'outputs/schemes/grids', 
-                   layer = paste(names(schemes)[x], '_grid', sep = ''),
-                   driver = 'ESRI Shapefile')
+    spdf <- SpatialPointsDataFrame(coords = schemes[[x]]$grid@coords,
+                                   data = as.data.frame(schemes[[x]]$grid))
+    writeOGR(spdf, dsn = 'schemes/grids', layer = paste(names(schemes)[x], '_grid', sep = ''),
+             driver = 'ESRI Shapefile')
   })
 
-#random
+  #random
   for (r in 1:50){
     lapply(1:length(schemes), function(x){
       spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[2]][[r]]@coords,
                                      data = as.data.frame(schemes[[x]][[2]][[r]]))
-      writeOGR(spdf, dsn = 'outputs/schemes/random', 
+      writeOGR(spdf, dsn = 'schemes/random', 
                layer = paste(names(schemes)[x], '_random', r, sep = ''),
                driver = 'ESRI Shapefile')
     })
   }
 
-#stratified
-  lapply(1:length(schemes), function(x){
-    spdf <- SpatialPointsDataFrame(coords = schemes[[x]]$strat@coords,
-                                   data = as.data.frame(schemes[[x]]$strat))
-    writeOGR(spdf, dsn = 'outputs/schemes/stratified', 
-             layer = paste(names(schemes)[x], '_strat', sep = ''),
-             driver = 'ESRI Shapefile')
-  })
+  #stratified
+  for (s in 1:length(thresh)){
+    lapply(1:length(schemes), function(x){
+      spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[3]][[s]]@coords,
+                                     data = as.data.frame(schemes[[x]][[3]][[s]]))
+      writeOGR(spdf, dsn = 'schemes/stratified', 
+               layer = paste(names(schemes)[x], '_strat_thresh', thresh[s]*100, sep = ''),
+               driver = 'ESRI Shapefile')
+    })
+  }
 
   
-    
-########## OLD CODE ##########
-
-## original function (much slower: ~26 sec)  
-
-strat.sample.old <- function(sdm, thresh, n.upper, n.lower){
-  
-  ## calculate percentiles of habitat suitability
-  percentiles <- quantile(sdm, probs = seq(0.001, 1, 0.001)) 
-  #percentiles[250] # indexing e.g.
-  
-  ## make raster based on 'thresh' value, then convert to polygons
-  strat1 <- sdm >= percentiles[thresh*1000]
-  strat1_spdf <- as(strat1, 'SpatialPolygonsDataFrame')
-  
-  ## create outlines of upper + lower strata
-  strat1_poly <- strat1_spdf[strat1_spdf@data$layer == 1,]
-  strat2_poly <- strat1_spdf[strat1_spdf@data$layer == 0,]
-  
-  ## generate sampling scheme within each area (upper/lower)
-  sample.upper <- spsample(strat1_poly, n = n.upper, type = 'regular')
-  sample.lower <- spsample(strat2_poly, n = n.lower, type = 'regular')
-  
-  ## combine  
-  strat.both <- rbind(sample.upper, sample.lower) 
-  
-  strat.sample.old <- strat.both
-  return(strat.sample.old)
-}
