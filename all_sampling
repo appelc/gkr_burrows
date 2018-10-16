@@ -6,20 +6,33 @@ library(rgdal)
   sdm <- raster('inputs_ignore/sdm')
   sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
 
-## remove lowest 5% of habiat suitability & convert back to raster
+## remove lowest X% of habiat suitability & convert back to raster
+  x <- 0.10
   sdm.pctle <- quantile(sdm.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
-  sdm.spdf <- sdm.spdf[sdm.spdf@data$sdm > sdm.pctle[50],]
+  sdm.spdf <- sdm.spdf[sdm.spdf@data$sdm > sdm.pctle[x*1000],]
   sdm <- raster(sdm.spdf)
+  
+  ##### create comparison figures (e.g., bottom 5% vs bottom 10%) *run before line 13*
+    sdm5 <- sdm > sdm.pctle[50]
+      plot(sdm5, main = 'bottom 5% removed')
+    sdm10 <- sdm > sdm.pctle[100]
+      plot(sdm10, main = 'bottom 10% removed')
+      
+    plot(sdm, main = 'original SDM')
+    sdm0.1 <- sdm > 0.1
+      plot(sdm0.1, main = 'below suitability=0.1 removed')
+  #####
 
 ## import buffered roads layer, project & crop to same CRS & extent as SDM raster
-  roads.raster <- raster('inputs_ignore/roads_raster_agg2.tif')
+  roads.raster <- raster('inputs_ignore/roads_raster_agg/roads_raster_agg2.tif')
   roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm),
                                 method = 'ngb', alignOnly = TRUE)
   roads.raster <- crop(roads.raster, extent(sdm))
 
 ## extract habitat suitability values within buffered areas to create new raster
   sdm.mask <- mask(sdm, roads.raster)
-
+  writeRaster(sdm.mask, 'sdm.mask.101518.tif')
+  
 ## convert new raster to SPDF and calculate percentiles of habitat suitability
   masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
   masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
@@ -27,48 +40,48 @@ library(rgdal)
 
 ## define functions for generating sampling locations
 
-  # GRID/RANDOM
-    # masked.spdf: habitat suitability SPDF, minus bottom 5% & masked to buffered road area
-    # nlocs: number of sampling locations (for grid & random sampling)
-    # nrandom: number of iterations (for random sampling)
+# GRID/RANDOM
+# masked.spdf: habitat suitability SPDF, minus bottom 5% & masked to buffered road area
+# nlocs: number of sampling locations (for grid & random sampling)
+# nrandom: number of iterations (for random sampling)
+
+sample.grid.rand <- function(masked.spdf, nlocs, nrandom){
   
-  sample.grid.rand <- function(masked.spdf, nlocs, nrandom){
-    
-    # generate grid sampling scheme with nlocs
-      grid <- spsample(masked.spdf, n = nlocs, type = 'regular')
-    
-    # generate random sampling scheme(s) with nlocs and nrandom
-      randoms <- list()
-      for (h in 1:nrandom){
-        random.h <- spsample(masked.spdf, n = nlocs, type = 'random')
-        randoms[[paste('random_', nlocs, '_', h, sep = '')]] <- random.h
-      }
-      
-    # combine & output
-      sample.grid.rand <- list('grid' = grid, 'random' = randoms)
-      return(sample.grid.rand)
-  }
+  # generate grid sampling scheme with nlocs
+    grid <- spsample(masked.spdf, n = nlocs, type = 'regular')
+  
+  # generate random sampling scheme(s) with nlocs and nrandom
+    randoms <- list()
+    for (h in 1:nrandom){
+      random.h <- spsample(masked.spdf, n = nlocs, type = 'random')
+      randoms[[paste('random_', nlocs, '_', h, sep = '')]] <- random.h
+    }
+  
+  # combine & output
+    sample.grid.rand <- list('grid' = grid, 'random' = randoms)
+    return(sample.grid.rand)
+}
 
-  # STRATIFIED
-    # masked.pctle: percentiles of habitat suitability calculated from masked.spdf
-    # nlocs: for stratified sampling, each strata has nlocs/2 sampling locations
-    # thresh: breakpoint btwn strata -- e.g., 0.90 = 90th percentile of habitat suitability
+# STRATIFIED
+# masked.pctle: percentiles of habitat suitability calculated from masked.spdf
+# nlocs: for stratified sampling, each strata has nlocs/2 sampling locations
+# thresh: breakpoint btwn strata -- e.g., 0.90 = 90th percentile of habitat suitability
 
-  sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
-    
-    # create SPDFs of upper/lower strata based on 'thresh' value
-      strat.upper <- masked.spdf[masked.spdf@data$sdm >= masked.pctle[thresh*1000],]
-      strat.lower <- masked.spdf[masked.spdf@data$sdm < masked.pctle[thresh*1000],]
-    
-    # sample within upper/lower strata based on nlocs
-      sample.upper <- spsample(strat.upper, n = nlocs/2, type = 'regular')
-      sample.lower <- spsample(strat.lower, n = nlocs/2, type = 'regular')
-      strat.both <- rbind(sample.upper, sample.lower)  
-    
-    # combine & output
-      sample.strat <- strat.both
-      return(sample.strat)
-  }
+sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
+  
+  # create SPDFs of upper/lower strata based on 'thresh' value
+    strat.upper <- masked.spdf[masked.spdf@data$sdm >= masked.pctle[thresh*1000],]
+    strat.lower <- masked.spdf[masked.spdf@data$sdm < masked.pctle[thresh*1000],]
+  
+  # sample within upper/lower strata based on nlocs
+    sample.upper <- spsample(strat.upper, n = nlocs/2, type = 'regular')
+    sample.lower <- spsample(strat.lower, n = nlocs/2, type = 'regular')
+    strat.both <- rbind(sample.upper, sample.lower)  
+  
+  # combine & output
+    sample.strat <- strat.both
+    return(sample.strat)
+}
 
 
 # example:
@@ -77,12 +90,12 @@ library(rgdal)
     test2 <- sample.strat(masked.spdf, masked.pctle, nlocs = 100, thresh = 0.80)
     b <- Sys.time()
     b-a # < 1 second 
-    
+
     plot(sdm.mask)
     plot(test1$grid, add = TRUE)
     plot(test1$random$random_100_10, add = TRUE, col = 'red')
     plot(test2, add = TRUE, col = 'blue')
-    
+
 
 ## loop through to generate sampling schemes:  
 
@@ -92,18 +105,18 @@ library(rgdal)
   
   schemes <- list()
 
-  for (a in nlocs){
-    grid.rand <- sample.grid.rand(masked.spdf, a, nrandom)
-    schemes[[paste(a, 'locs', sep = '')]] <- grid.rand
-    
-      strat.list <- list()
-        for (b in thresh){
-          strat <- sample.strat(masked.spdf, masked.pctle, nlocs = a, thresh = b)
-          strat.list[[paste('thresh', b*100, sep = '')]] <- strat
-        }
-    
-    schemes[[paste(a, 'locs', sep = '')]][['strat']] <- strat.list
+for (a in nlocs){
+  grid.rand <- sample.grid.rand(masked.spdf, a, nrandom)
+  schemes[[paste(a, 'locs', sep = '')]] <- grid.rand
+  
+  strat.list <- list()
+  for (b in thresh){
+    strat <- sample.strat(masked.spdf, masked.pctle, nlocs = a, thresh = b)
+    strat.list[[paste('thresh', b*100, sep = '')]] <- strat
   }
+  
+  schemes[[paste(a, 'locs', sep = '')]][['strat']] <- strat.list
+}
 
 
 ## lots of lists within lists... an example:
@@ -115,7 +128,7 @@ library(rgdal)
 
 ## now to export them all: 
 
-  #grid
+#grid
   lapply(1:length(schemes), function(x){
     spdf <- SpatialPointsDataFrame(coords = schemes[[x]]$grid@coords,
                                    data = as.data.frame(schemes[[x]]$grid))
@@ -123,7 +136,7 @@ library(rgdal)
              driver = 'ESRI Shapefile')
   })
 
-  #random
+#random
   for (r in 1:50){
     lapply(1:length(schemes), function(x){
       spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[2]][[r]]@coords,
@@ -134,7 +147,7 @@ library(rgdal)
     })
   }
 
-  #stratified
+#stratified
   for (s in 1:length(thresh)){
     lapply(1:length(schemes), function(x){
       spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[3]][[s]]@coords,
@@ -144,5 +157,3 @@ library(rgdal)
                driver = 'ESRI Shapefile')
     })
   }
-
-  
