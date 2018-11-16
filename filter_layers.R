@@ -63,15 +63,33 @@ library(rgeos)
 #4. BUFFER 'roads_private' by 5m (side type = FULL, end type = ROUND) -> 'roads_private_buf5'
 #5. CLIP 'roads_public_buf250' to 'land_crop' -> 'roads_public_buf250_clip' 
 #   (this step ensures that buffers around public roads are actually on public lands)
-#6. MERGE 'roads_public_buf250_clip' & 'roads_private_buf5' -> 'roads_both_buffered'
+#6. MERGE 'roads_public_buf250_clip' & 'roads_private_buf5' -> 'roads_both_buff'
 #7. DISSOLVE 'roads_both_buffered' -> 'roads_both_buff_diss' (*optional*)
 
-## Then convert to raster:
-  
-## 1. POLYGON TO RASTER 
-  
-## import buffered layer:
-roads_buffered <- readOGR(dsn = 'inputs_ignore/Arc_outputs', layer = 'roads_both_buff_dis')
+### ** this makes some weird geometries... maybe try this instead:
+                                    
+#1. BUFFER 'roads_ca_clip' (or 'roads_crop') by 250m (side = FULL, end = ROUND) -> 'roads_both_buf250'
+#2. BUFFER 'roads_ca_clip' (or 'roads_crop') by 5m (side = FULL, end = ROUND) -> 'roads_both_buf5'
+#3. CLIP 'roads_both_buf250' to 'land_crop' -> 'roads_public_buf'
+#4. ERASE 'land_crop' from 'sdm_out_hist_poly_buff' -> private land within range ('land_private')
+#5. CLIP 'roads_both_buf5' to 'land_private' -> 'roads_private_buf'
+#6. MERGE 'roads_public_buf' & 'roads_private_buf'
+## ehh... don't do this method!
+                                    
+                                    
+## Then convert to raster (also in ArcMap):
+
+## 1. ADD FIELD to 'roads_both_buf' attributes table ('Id') and use FIELD CALCULATOR = 1
+## 2. POLYGON TO RASTER: 'roads_both_buf', value = Id, type = MAX, cellsize = 0.0001 -> output 'roads_buff_0001.tif'
+    ## when I did this with the original SDM, I used a cellsize = 10, now I had to use 0.0001; check each time
+    ## (also check projection)
+## 3. AGGREGATE: input 'roads_buff_0001.tif', cell factor = res(roads_buff_0001)/res(hist sdm), e.g. 89.75, 
+    ## aggregation = MAX, check expand, check ignore noData -> output 'roads_buff001_agg89_75.tif'
+## 4. AGGREGATE: input 'roads_buff001_agg89_75.tif', cell factor = 1, aggregation = MAX, check expand, check ignore noData,
+    ## [Environment: Processing extent = 'hist sdm', snap raster = 'hist sdm'; Raster Analysis > cell size = 'hist sdm']
+    ## -> output 'roads_raster_agg_snap'
+      ## (for some reason it doesn't work to resample and snap in the same step, so it's important to do this twice:
+      ## once to set the cellsize and once to snap to the SDM)
 
 
 ## create sampling schemes within the buffered area (switch to 'stratified_sampling.R')
