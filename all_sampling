@@ -15,48 +15,49 @@ library(rgdal)
   gkr.locs <- locs[locs$in_site == 1,]  
   gkr.locs$suitability <- extract(sdm, gkr.locs) #(diff projections)
   gkr.pctle <- quantile(gkr.locs$suitability, probs = seq(0.001, 1, 0.001))
-  
+
 ## remove lowest X% of habiat suitability & convert back to raster
   x <- 0.05
   sdm.spdf <- sdm.spdf[sdm.spdf@data$model.0.5.5.nb > gkr.pctle[x*1000],] #make sure col name matches
   sdm <- raster(sdm.spdf)
 
-    ### create comparison figures (e.g., bottom 5% vs bottom 10%) *run before prev line (sdm <- raster(sdm.spdf))*
-      sdm5 <- sdm > gkr.pctle[50]
-        plot(sdm5, main = 'bottom 5% removed (>0.071)')
-      sdm10 <- sdm > gkr.pctle[100]
-        plot(sdm10, main = 'bottom 10% removed (>0.092)')
-      
-      plot(sdm, main = 'original SDM')
-      sdm0.1 <- sdm > 0.1
-      plot(sdm0.1, main = 'below suitability=0.1 removed')
+### create comparison figures (e.g., bottom 5% vs bottom 10%) *run before prev line (sdm <- raster(sdm.spdf))*
+    sdm5 <- sdm > gkr.pctle[50]
+    plot(sdm5, main = 'bottom 5% removed (>0.071)')
+    sdm10 <- sdm > gkr.pctle[100]
+    plot(sdm10, main = 'bottom 10% removed (>0.092)')
+    
+    plot(sdm, main = 'original SDM')
+    sdm0.1 <- sdm > 0.1
+    plot(sdm0.1, main = 'below suitability=0.1 removed')
     #####
-
+    
 ## import buffered roads layer, project & crop to same CRS & extent as SDM raster
-  roads.raster <- raster('VLAB_INPUTS/roads_raster_agg2.tif')
-  roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm),
-                                method = 'ngb', alignOnly = TRUE)
-  roads.raster <- crop(roads.raster, extent(sdm))
+  roads.raster <- raster('VLAB_INPUTS/roads_rasters/roads_agg_snp.tif')
+  roads.raster <- projectRaster(roads.raster, crs = '+proj=utm +zone=10 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0')
+#  roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm),
+#                                method = 'ngb', alignOnly = TRUE)
+#  roads.raster <- crop(roads.raster, extent(sdm))
 
 ## extract habitat suitability values within buffered area to create new raster
   sdm.mask <- mask(sdm, roads.raster)
-  writeRaster(sdm.mask, 'sdm.mask.101518.tif')
+  writeRaster(sdm.mask, 'sdm.mask.111518.tif')
   
-    image(sdm, main = 'bottom 5% removed')
-    image(sdm.mask, main = 'masked by roads')
+  image(sdm, main = 'bottom 5% removed')
+  image(sdm.mask, main = 'masked by roads')
 
 ## import CNM & CPNA boundaries
   carrizo <- readOGR(dsn = 'VLAB_INPUTS', layer = 'CarrizoNationalMonument')
-    carrizo <- spTransform(carrizo, crs(sdm))
+  carrizo <- spTransform(carrizo, crs(sdm))
   panoche <- readOGR(dsn = 'VLAB_INPUTS', layer = 'CPNA_boundary_1')
-    panoche <- spTransform(panoche, crs(sdm))
-    
-    
-    
-    
+  panoche <- spTransform(panoche, crs(sdm))
+
+
+
+
 ## convert new raster to SPDF and calculate percentiles of habitat suitability
-  masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
-  masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
+masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
+masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
 
 
 ## define functions for generating sampling locations
