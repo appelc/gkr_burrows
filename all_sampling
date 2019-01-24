@@ -1,0 +1,181 @@
+## first, download 'VLAB_INPUTS' folder from Drive
+
+library(raster)
+library(rgdal)
+
+## load SDM raster & convert to SPDF
+  sdm <- raster('VLAB_INPUTS/sdm_historical/model-0.5-5-nb.tif')
+  sdm <- projectRaster(sdm, crs = '+proj=utm +zone=10 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0')
+    ## not ideal to project here, but it causes problems masking w/ roads layer below otherwise
+    ## (does this not have a projection defined initially?)
+  sdm.spdf <- as(sdm, 'SpatialPixelsDataFrame')
+
+## import GKR locations, extract habitat suitability, & calculate percentiles
+  locs <- readOGR(dsn = 'VLAB_INPUTS', layer = 'GKR__unique_site2010_2017')
+  gkr.locs <- locs[locs$in_site == 1,]  
+  gkr.locs$suitability <- extract(sdm, gkr.locs) #(diff projections)
+  gkr.pctle <- quantile(gkr.locs$suitability, probs = seq(0.001, 1, 0.001))
+
+## remove lowest X% of habiat suitability & convert back to raster
+  x <- 0.05
+  sdm.spdf <- sdm.spdf[sdm.spdf@data$model.0.5.5.nb > gkr.pctle[x*1000],] #make sure col name matches
+  sdm <- raster(sdm.spdf)
+
+### create comparison figures (e.g., bottom 5% vs bottom 10%) *run before prev line (sdm <- raster(sdm.spdf))*
+    sdm5 <- sdm > gkr.pctle[50]
+    plot(sdm5, main = 'bottom 5% removed (>0.071)')
+    sdm10 <- sdm > gkr.pctle[100]
+    plot(sdm10, main = 'bottom 10% removed (>0.092)')
+    
+    plot(sdm, main = 'original SDM')
+    sdm0.1 <- sdm > 0.1
+    plot(sdm0.1, main = 'below suitability=0.1 removed')
+    #####
+    
+## import buffered roads layer, project & crop to same CRS & extent as SDM raster
+  roads.raster <- raster('VLAB_INPUTS/roads_rasters/roads_agg_snp.tif')
+  roads.raster <- projectRaster(roads.raster, crs = '+proj=utm +zone=10 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0')
+#  roads.raster <- projectRaster(roads.raster, res = res(roads.raster), crs = crs(sdm),
+#                                method = 'ngb', alignOnly = TRUE)
+#  roads.raster <- crop(roads.raster, extent(sdm))
+
+## extract habitat suitability values within buffered area to create new raster
+  sdm.mask <- mask(sdm, roads.raster)
+  writeRaster(sdm.mask, 'sdm.mask.111518.tif')
+  
+  image(sdm, main = 'bottom 5% removed')
+  image(sdm.mask, main = 'masked by roads')
+
+## import CNM & CPNA boundaries
+  carrizo <- readOGR(dsn = 'VLAB_INPUTS', layer = 'CarrizoNationalMonument')
+  carrizo <- spTransform(carrizo, crs(sdm))
+  panoche <- readOGR(dsn = 'VLAB_INPUTS', layer = 'CPNA_boundary_1')
+  panoche <- spTransform(panoche, crs(sdm))
+
+
+
+
+## convert new raster to SPDF and calculate percentiles of habitat suitability
+masked.spdf <- as(sdm.mask, 'SpatialPixelsDataFrame')
+masked.pctle <- quantile(masked.spdf@data$sdm, probs = seq(0.001, 1, 0.001))
+
+
+## define functions for generating sampling locations
+
+# GRID/RANDOM
+# masked.spdf: habitat suitability SPDF, minus bottom 5% & masked to buffered road area
+# nlocs: number of sampling locations (for grid & random sampling)
+# nrandom: number of iterations (for random sampling)
+
+sample.grid.rand <- function(masked.spdf, nlocs, nrandom){
+  
+  # generate grid sampling scheme with nlocs
+  grid <- spsample(masked.spdf, n = nlocs, type = 'regular')
+  
+  # generate random sampling scheme(s) with nlocs and nrandom
+  randoms <- list()
+  for (h in 1:nrandom){
+    random.h <- spsample(masked.spdf, n = nlocs, type = 'random')
+    randoms[[paste('random_', nlocs, '_', h, sep = '')]] <- random.h
+  }
+  
+  # combine & output
+  sample.grid.rand <- list('grid' = grid, 'random' = randoms)
+  return(sample.grid.rand)
+}
+
+# STRATIFIED
+# masked.pctle: percentiles of habitat suitability calculated from masked.spdf
+# nlocs: for stratified sampling, each strata has nlocs/2 sampling locations
+# thresh: breakpoint btwn strata -- e.g., 0.90 = 90th percentile of habitat suitability
+
+sample.strat <- function(masked.spdf, masked.pctle, nlocs, thresh){
+  
+  # create SPDFs of upper/lower strata based on 'thresh' value
+  strat.upper <- masked.spdf[masked.spdf@data$sdm >= masked.pctle[thresh*1000],]
+  strat.lower <- masked.spdf[masked.spdf@data$sdm < masked.pctle[thresh*1000],]
+  
+  # sample within upper/lower strata based on nlocs
+  sample.upper <- spsample(strat.upper, n = nlocs/2, type = 'regular')
+  sample.lower <- spsample(strat.lower, n = nlocs/2, type = 'regular')
+  strat.both <- rbind(sample.upper, sample.lower)  
+  
+  # combine & output
+  sample.strat <- strat.both
+  return(sample.strat)
+}
+
+
+# example:
+a <- Sys.time()
+test1 <- sample.grid.rand(masked.spdf, nlocs = 100, nrandom = 50)
+test2 <- sample.strat(masked.spdf, masked.pctle, nlocs = 100, thresh = 0.80)
+b <- Sys.time()
+b-a # < 1 second 
+
+plot(sdm.mask)
+plot(test1$grid, add = TRUE)
+plot(test1$random$random_100_10, add = TRUE, col = 'red')
+plot(test2, add = TRUE, col = 'blue')
+
+
+## loop through to generate sampling schemes:  
+
+nlocs <- seq(50, 300, 10)       # number of trapping locations
+nrandom <- 50                   # number of random grids
+thresh <- seq(0.10, 0.90, 0.10) # is it realistic to use a threshold < 0.50?
+
+schemes <- list()
+
+for (a in nlocs){
+  grid.rand <- sample.grid.rand(masked.spdf, a, nrandom)
+  schemes[[paste(a, 'locs', sep = '')]] <- grid.rand
+  
+  strat.list <- list()
+  for (b in thresh){
+    strat <- sample.strat(masked.spdf, masked.pctle, nlocs = a, thresh = b)
+    strat.list[[paste('thresh', b*100, sep = '')]] <- strat
+  }
+  
+  schemes[[paste(a, 'locs', sep = '')]][['strat']] <- strat.list
+}
+
+
+## lots of lists within lists... an example:
+
+plot(schemes$`100locs`$grid)
+plot(schemes$`100locs`$random$random_100_10, add = TRUE, col = 'red')
+plot(schemes$`100locs`$strat$thresh80, add = TRUE, col = 'blue')
+
+
+## now to export them all: 
+
+#grid
+lapply(1:length(schemes), function(x){
+  spdf <- SpatialPointsDataFrame(coords = schemes[[x]]$grid@coords,
+                                 data = as.data.frame(schemes[[x]]$grid))
+  writeOGR(spdf, dsn = 'schemes/grids', layer = paste(names(schemes)[x], '_grid', sep = ''),
+           driver = 'ESRI Shapefile')
+})
+
+#random
+for (r in 1:50){
+  lapply(1:length(schemes), function(x){
+    spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[2]][[r]]@coords,
+                                   data = as.data.frame(schemes[[x]][[2]][[r]]))
+    writeOGR(spdf, dsn = 'schemes/random', 
+             layer = paste(names(schemes)[x], '_random', r, sep = ''),
+             driver = 'ESRI Shapefile')
+  })
+}
+
+#stratified
+for (s in 1:length(thresh)){
+  lapply(1:length(schemes), function(x){
+    spdf <- SpatialPointsDataFrame(coords = schemes[[x]][[3]][[s]]@coords,
+                                   data = as.data.frame(schemes[[x]][[3]][[s]]))
+    writeOGR(spdf, dsn = 'schemes/stratified', 
+             layer = paste(names(schemes)[x], '_strat_thresh', thresh[s]*100, sep = ''),
+             driver = 'ESRI Shapefile')
+  })
+}
