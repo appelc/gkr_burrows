@@ -146,9 +146,9 @@ rangesim(sdm, p1 = 0.9, change = -0.25, area.suit, schemes, nlocs = 100)
 
     ## loop -- this will take a while (~ 30 min): 
       ## (alternatively, set individual p1 to do by hand)
-      p1 <- 0.9
+      p1 <- 1.0
     
-    sim_vals <- list()
+    #sim_vals <- list()
     
     for (k in p1) {
       ratios_k <- NULL
@@ -177,6 +177,7 @@ rangesim(sdm, p1 = 0.9, change = -0.25, area.suit, schemes, nlocs = 100)
       sim_vals_melt <- sim_vals[[a]]
       sim_vals_melt$change <- factor(sim_vals_melt$change, 
                                      levels = unique(sim_vals_melt$change)) #reorder -90 to -10
+      sim_vals_melt <- sim_vals_melt[order(sim_vals_melt$scheme, decreasing = TRUE),] #reorder random/grid (so grid points are on top)
       sim_vals_melt <- sim_vals_melt[!is.na(sim_vals_melt$ratio),] #remove NAs
       
       g <- ggplot(sim_vals_melt, aes(x = nlocs, y = ratio, col = scheme)) +
@@ -195,13 +196,14 @@ rangesim(sdm, p1 = 0.9, change = -0.25, area.suit, schemes, nlocs = 100)
                         strip.text = element_text(size= 14),
                         legend.text = element_text(size = 12), legend.title = element_text(size = 14),
                         plot.title = element_text(size = rel(1.5), face = 'bold', hjust = 0.5))
+      #g
       
-      tiff(paste('sim_figures/081518/starting_', sub('%.*', '', names(sim_vals)[a]), 
+      tiff(paste('sim_figures/091818/starting_', sub('%.*', '', names(sim_vals)[a]), 
                  '.tif', sep = ''), width = 800, height = 500)
       plot(g)
       dev.off()
       
-      write.csv(sim_vals_melt, paste('spreadsheets/081518/simvals_', names(sim_vals)[a], 
+      write.csv(sim_vals_melt, paste('spreadsheets/091818/simvals_', names(sim_vals)[a], 
                                      '.csv', sep = ''))
     }
 

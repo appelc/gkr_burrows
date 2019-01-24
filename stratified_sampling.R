@@ -12,6 +12,10 @@ library(rgdal)
 ## remove lowest 5% of habiat suitability
     sdm.spdf <- sdm.spdf[sdm.spdf@data$sdm > sdm.pctle[50],]
 
+## crop SDM to buffered area around roads (by land ownership)
+    roads.buffered <- readOGR(dsn = 'inputs_ignore/Arc_outputs', layer = 'roads_both_buff_dis')
+    sdm.buffered <- crop(sdm.spdf, roads.buffered)
+    
 ## define function
   
   # thresh: breakpoint btwn strata, e.g., 0.90 = 90th percentile of habitat suitability values

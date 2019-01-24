@@ -29,8 +29,9 @@ library(rgeos)
       )
       
   # crop to 'range' shapefile
-      roads_crop <- gIntersection(roads_ca, range)
-      roads_crop <- gIntersection(range, roads_ca)
+      #roads_crop <- gIntersection(roads_ca, range)
+      roads_ca <- spTransform(roads_ca, crs(range))
+      roads_crop <- crop(roads_ca, range)
 
 ## PUBLIC LANDS
       
